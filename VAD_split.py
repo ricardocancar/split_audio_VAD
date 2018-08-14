@@ -4,19 +4,19 @@
 # Date: Sun August 12 11:45:46 2018 +0800
 # Author: Ricardo Cancar <ricardocancar@gmail.com>
 
-
 import subprocess ## replace os 
-import matplotlib.pyplot as plt
-from matplotlib import style
+#import matplotlib.pyplot as plt
+#from matplotlib import style
 import numpy as np
 import scipy.io.wavfile
 import datetime
 import argparse
+import time
 from math import ceil, floor
 from scipy.fftpack import dct
 from pathlib import Path
 
-style.use('ggplot')
+#style.use('ggplot')
 
 def get_args():
     desc = "Split audio.wav when nobody is speaking"
@@ -33,9 +33,9 @@ def get_args():
                        help='name of audio you want to split',
                        required=True)
    
-    #parser.add_argument('-o', '--output',
-    #                   help='path to output example /path/to/output/',
-    #                   required=True)
+    parser.add_argument('-o', '--output',
+                       help='path to output example /path/to/output/',
+                       required=True)
 
    
     ret = parser.parse_args()
@@ -53,7 +53,7 @@ class VAD():
     def _read_wav(self,file_name):
         self.rate, self.signal = scipy.io.wavfile.read(file_name)
         return self
-        
+    
     def pre_proccessing(self, pre_emphasis = 0.97, frame_size=0.02, frame_stride=0.01):
         emphasized_signal = np.append(self.signal[0], self.signal[1:] - pre_emphasis * self.signal[:-1])
         frame_length, frame_step = frame_size * self.rate, frame_stride * self.rate  # Convert from seconds to samples
@@ -76,7 +76,6 @@ class VAD():
         return pow_frames
 
     def mel_filter(self, nfilt = 40):
-        #### se puede optimizar ###
         pow_frames = self.power_spect()
         low_freq_mel = 0
         high_freq_mel = (2595 * np.log10(1 + (self.rate / 2) / 700))  # Convert Hz to Mel
@@ -102,12 +101,11 @@ class VAD():
         frec_wanted = []
         hz_points, filter_banks = self.mel_filter()
         for i in range(len(hz_points)-2):
-           if hz_points[i]<= self.hight_ban and hz_points[i] >=self.low_ban:
+           if  hz_points[i]<= self.hight_ban and hz_points[i] >=self.low_ban:
               frec_wanted.append(1)
            else:
               frec_wanted.append(0)
         
-        #print(filter_banks)
         sum_voice_energy = np.dot(filter_banks, frec_wanted)/1e+6  ## 1e+6 is use to reduce the signal amplitud 
         return(sum_voice_energy)
 
@@ -118,55 +116,53 @@ class VAD():
         plt.ylabel('amp')
         plt.show()
 
-
-#############################################################
+    def write_wav(self,start, end, index,output):
+        my_file = Path("./{}".format(output))#"/home/rcancar/Documents/TFM/codigo/predict")
+        if not my_file.is_dir():
+          bashCommand = "mkdir ./predict".format(output) #/home/rcancar/Documents/TFM/codigo/predict"
+          process = subprocess.Popen(bashCommand.split(), stdout=subprocess.PIPE)
+          out, error = process.communicate()
+        st =time.time()
+        for i in range(len(start)):
+            signal = self.signal[int(start[i] * self.rate):int(end[i] * self.rate)]  # Keep the first 3.5 seconds
+            scipy.io.wavfile.write("./{}/out{}.wav".format(output,index[i]), self.rate,signal)
+        end = time.time()
+        print(end - st)
+            
+################################################################################333
 def get_cut_points(aux):
    cont = 0
    silence = False
-   start =[0]
-   diff = []
-   index_start = [0]
+   aux_s = [0]
+   start =[]
+   end = []
+   index_start = []
+   aux_index = [0]
    for i in range(len(aux)):
-       if aux[i]  < 20:
+       if aux[i]  < 15:
            cont+=1
            if cont == 55:  ##frames minimun frames between pauses in speech
               silence = True
               #print(start[-1])
-              diff.append(  ((i-54)/100)  - start[-1] )
-              start[-1] = str(datetime.timedelta(seconds=start[-1]))
-              diff[-1] = str(datetime.timedelta(seconds=diff[-1]))
-              #print(i-99,aux[i-99])
-       if aux[i] > 20:
+              if ((i-54)/100)  - aux_s[-1] > 1.5: # longitud de audio minima permitida en segundos 
+                  start.append(aux_s[-1])
+                  index_start.append(aux_index[-1])
+                  index_start[-1] = str(datetime.timedelta(seconds=int(index_start[-1]/100)))
+                  end.append(((i-54)/100))
+                  #print(i-99,aux[i-99])
+       if aux[i] > 15:
            cont =0
            if silence:
               silence = False
-              start.append( ((i-1)/100) )
-              index_start.append(i-1) # return the time start of out audio file 
+              aux_s.append( ((i-1)/100) )
+              aux_index.append(i-1) # return the time start of out audio file 
    #print(index_start)      
-   if isinstance(start[-1], float):
-                 
-       diff.append(len(aux)/100 - start[-1])
-       start[-1] = str(datetime.timedelta(seconds=start[-1]))
-       diff[-1] = str(datetime.timedelta(seconds=diff[-1]))
-   return start, diff, index_start
-
-def split_audio(file_name, start, end,index):
-   
-   my_file = Path("./predict")#"/home/rcancar/Documents/TFM/codigo/predict")
-   if not my_file.is_dir():
-      bashCommand = "mkdir ./predict" #/home/rcancar/Documents/TFM/codigo/predict"
-      process = subprocess.Popen(bashCommand.split(), stdout=subprocess.PIPE)
-      output, error = process.communicate()
-      
-   #os.system("ffmpeg -i {} -f segment -segment_time {} -c copy ./predict/out%03d.wav".format(audio,length))
-   for i in range(len(start)):
-     bashCommand = "ffmpeg -ss 0{} -i {} -t 0{}  -vn ./predict/out{}.wav".format(start[i],file_name, end[i], index[i])
-     process = subprocess.Popen(bashCommand.split(), stdout=subprocess.PIPE)
-     output, error = process.communicate()
-   
-
-
-
+   if len(aux_s) > len(start):
+       start.append(aux_s[-1])
+       index_start.append(aux_index[-1])    
+       index_start[-1] = str(datetime.timedelta(seconds=int(index_start[-1]/100)))      
+       end.append(len(aux)/100)
+   return start, end, index_start
 
 
 
@@ -174,6 +170,8 @@ if __name__ == '__main__':
    args = get_args()
    a = VAD(args.file_name)
    voice_energy = a.voice_frecuency()
-   a.plotea(voice_energy) # to see the signal voice wave....
+   #a.plotea(voice_energy) # to see the signal voice wave....
    start, end , index = get_cut_points(voice_energy)
-  # split_audio(args.file_name,start,end, index)
+   #print(start,end)
+   a.write_wav(start, end, index, args.output)
+   

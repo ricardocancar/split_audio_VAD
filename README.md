@@ -16,4 +16,4 @@ Python 3.6.3
     numpy==1.15.0
 
 
-necesario tener instalado [ffmpeg](https://www.ffmpeg.org/download.html)
+
